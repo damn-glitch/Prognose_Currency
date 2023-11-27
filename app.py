@@ -1,6 +1,11 @@
 # Group 7: Alisher Beisembekov Daniil Mikhailov Ghaith Muhie
 # Import necessary libraries
 import streamlit as st
+import subprocess
+requirements_file = 'requirements.txt'
+
+# Run the pip install command
+subprocess.run(['pip', 'install', '-r', requirements_file], check=True)
 from datetime import date
 import yfinance
 from prophet import Prophet
@@ -8,11 +13,7 @@ from prophet.plot import plot_plotly
 from plotly import graph_objects as go
 import pandas as pd
 import base64
-import subprocess
-requirements_file = 'requirements.txt'
 
-# Run the pip install command
-subprocess.run(['pip', 'install', '-r', requirements_file], check=True)
 # Set start date and today's date
 START = "2009-01-01"
 TODAY = date.today().strftime("%Y-%m-%d")
