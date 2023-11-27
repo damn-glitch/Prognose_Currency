@@ -1,6 +1,6 @@
 # Group 7: Alisher Beisembekov Daniil Mikhailov Ghaith Muhie
 # Import necessary libraries\
-!pip install streamlit datetime yfinance prophet plotly pandas base64
+!pip install datetime yfinance prophet plotly pandas base64
 import streamlit as st
 from datetime import date
 import yfinance
