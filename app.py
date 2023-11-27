@@ -1,11 +1,6 @@
 # Group 7: Alisher Beisembekov Daniil Mikhailov Ghaith Muhie
 # Import necessary libraries
 import streamlit as st
-import subprocess
-requirements_file = 'requirements.txt'
-
-# Run the pip install command
-subprocess.run(['pip', 'install', '-r', requirements_file], check=True)
 from datetime import date
 import yfinance
 from prophet import Prophet
