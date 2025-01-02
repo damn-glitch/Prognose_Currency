@@ -1,4 +1,3 @@
-# Group 7: Alisher Beisembekov Daniil Mikhailov Ghaith Muhie
 # Import necessary libraries
 import streamlit as st
 from datetime import date
@@ -14,7 +13,7 @@ START = "2009-01-01"
 TODAY = date.today().strftime("%Y-%m-%d")
 
 # Set Streamlit app title
-st.title("ISTE 470 Project Group 7")
+st.title("CryptoProphet Infinitum Intelligence")
 
 # Define a list of stocks for user selection
 stocks = ("ETH-USD", "BTC-USD", "GOOG", "AAPL", "MSFT", "GME")
