@@ -494,4 +494,3 @@ with col3:
         mime="text/csv"
     )
 
-""", unsafe_allow_html=True)
