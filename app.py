@@ -33,8 +33,20 @@ def load_data(stock):
 # Load historical stock data for the selected stock
 data = load_data(selected_stock)
 
+# Check if data is available
+if data.empty:
+    st.error("No data available for the selected stock. Please try a different stock.")
+    st.stop()
+
 # User input for the number of rows to view in the stock data
-stock_view = st.number_input("Enter the number of rows to view", min_value=1, max_value=len(data), value=50, step=1)
+# Fix: Set default value to minimum of 50 and actual data length
+default_rows = min(50, len(data))
+stock_view = st.number_input("Enter the number of rows to view", 
+                           min_value=1, 
+                           max_value=len(data), 
+                           value=default_rows, 
+                           step=1)
+
 st.subheader(f"Stock data of last {stock_view} rows")
 st.write(data.tail(stock_view))
 
@@ -42,6 +54,7 @@ st.write(data.tail(stock_view))
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=data["Date"], y=data["Open"], name="stock_open"))
 fig.add_trace(go.Scatter(x=data["Date"], y=data["Close"], name="stock_close"))
+
 # Update layout for dark background
 fig.update_layout(
     title_text="Time Series data",
@@ -55,6 +68,11 @@ st.plotly_chart(fig)
 df_train = data[["Date", "Close"]]
 df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
 
+# Check if we have enough data for forecasting
+if len(df_train) < 2:
+    st.error("Not enough data points for forecasting. Need at least 2 data points.")
+    st.stop()
+
 # Initialize and fit the Prophet model
 m = Prophet()
 m.fit(df_train)
@@ -62,7 +80,13 @@ future = m.make_future_dataframe(periods=period)
 forecast = m.predict(future)
 
 # User input for the number of rows to view in the forecasted data
-rows_to_view = st.number_input("Enter the number of rows to view", min_value=1, max_value=len(forecast), value=50, step=1)
+# Fix: Set default value to minimum of 50 and actual forecast length
+default_forecast_rows = min(50, len(forecast))
+rows_to_view = st.number_input("Enter the number of rows to view for forecast", 
+                              min_value=1, 
+                              max_value=len(forecast), 
+                              value=default_forecast_rows, 
+                              step=1)
 
 # View specified number of rows of forecasted data as DataFrame
 st.subheader(f"Last {rows_to_view} Rows of Forecasted Data")
@@ -71,9 +95,10 @@ st.dataframe(forecast.tail(rows_to_view))
 # Plot the forecasted data
 st.subheader("Forecast data")
 fig2 = plot_plotly(m, forecast)
+
 # Update layout for dark background
 fig2.update_layout(
-    title_text="Time Series data",
+    title_text="Forecast Time Series data",
     xaxis_rangeslider_visible=True,
     plot_bgcolor='rgba(0,0,0,0)',
     paper_bgcolor='rgba(0,0,0,0)'
