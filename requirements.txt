@@ -1,4 +1,4 @@
-yfinance==0.2.32
-pandas==2.1.3
-plotly==5.18.0
-prophet==1.1.5
+yfinance
+pandas
+plotly
+prophet
