@@ -382,14 +382,49 @@ with tab3:
 # Prophet Forecasting Section
 st.subheader("🔮 AI-Powered Forecasting with Prophet")
 
+# Check if we have the required data
+if data.empty:
+    st.error("❌ No data available for forecasting.")
+    st.stop()
+
+# Verify required columns exist
+required_columns = ['Date', 'Close']
+missing_columns = [col for col in required_columns if col not in data.columns]
+
+if missing_columns:
+    st.error(f"❌ Missing required columns: {missing_columns}")
+    st.write(f"Available columns: {list(data.columns)}")
+    st.stop()
+
 # Prepare data for Prophet with comprehensive cleaning
-df_train = data[["Date", "Close"]].copy()
-df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
+try:
+    df_train = data[["Date", "Close"]].copy()
+    
+    # Check if we got data
+    if df_train.empty:
+        st.error("❌ No data available after extracting Date and Close columns.")
+        st.stop()
+    
+    # Rename columns for Prophet
+    df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
+    
+    # Verify the rename worked
+    if 'ds' not in df_train.columns or 'y' not in df_train.columns:
+        st.error("❌ Column renaming failed. Data structure issue.")
+        st.write(f"Columns after rename: {list(df_train.columns)}")
+        st.stop()
+        
+except Exception as e:
+    st.error(f"❌ Error preparing data for Prophet: {str(e)}")
+    st.write(f"Available data columns: {list(data.columns) if not data.empty else 'No data'}")
+    st.write(f"Data shape: {data.shape if not data.empty else 'No data'}")
+    st.stop()
 
 # Comprehensive data cleaning for Prophet
 st.info("🧹 Preprocessing data for AI model...")
 
 # Remove any NaN or infinite values
+initial_rows = len(df_train)
 df_train = df_train.dropna()
 df_train = df_train[np.isfinite(df_train['y'])]
 
@@ -406,13 +441,21 @@ df_train = df_train.sort_values('ds').reset_index(drop=True)
 # Remove duplicate dates (keep the last value for each date)
 df_train = df_train.drop_duplicates(subset=['ds'], keep='last')
 
+cleaned_rows = len(df_train)
+
 # Debug information
 st.write(f"📊 **Data Summary for AI Training:**")
-st.write(f"- Total data points: {len(df_train)}")
+st.write(f"- Initial data points: {initial_rows}")
+st.write(f"- After cleaning: {cleaned_rows}")
+st.write(f"- Data removed: {initial_rows - cleaned_rows} points")
+
 if not df_train.empty:
-    st.write(f"- Date range: {df_train['ds'].min().strftime('%Y-%m-%d')} to {df_train['ds'].max().strftime('%Y-%m-%d')}")
-    st.write(f"- Price range: ${df_train['y'].min():.2f} to ${df_train['y'].max():.2f}")
-    st.write(f"- Data quality: {'✅ Good' if len(df_train) > 30 else '⚠️ Limited'}")
+    try:
+        st.write(f"- Date range: {df_train['ds'].min().strftime('%Y-%m-%d')} to {df_train['ds'].max().strftime('%Y-%m-%d')}")
+        st.write(f"- Price range: ${df_train['y'].min():.2f} to ${df_train['y'].max():.2f}")
+        st.write(f"- Data quality: {'✅ Good' if len(df_train) > 30 else '⚠️ Limited'}")
+    except Exception as e:
+        st.write(f"- Error displaying data summary: {str(e)}")
 
 # Check if we have sufficient data
 if df_train.empty:
@@ -421,6 +464,14 @@ if df_train.empty:
     st.write("1. Try selecting a different asset")
     st.write("2. Check your internet connection")
     st.write("3. The selected asset might not have sufficient historical data")
+    
+    # Show what happened to the data
+    st.subheader("🔍 Data Cleaning Results")
+    st.write("The data was removed during cleaning for these possible reasons:")
+    st.write("- Invalid or missing dates")
+    st.write("- Invalid price values (NaN, infinite, zero, or negative)")
+    st.write("- Duplicate dates")
+    
     st.stop()
 
 elif len(df_train) < 10:
@@ -434,9 +485,12 @@ elif len(df_train) < 30:
     st.warning(f"⚠️ Limited data available ({len(df_train)} points). Predictions may be less accurate.")
 
 # Check date consistency
-date_diff = df_train['ds'].diff().dt.days.median()
-if pd.isna(date_diff) or date_diff > 7:
-    st.warning("⚠️ Irregular data frequency detected. This may affect prediction accuracy.")
+try:
+    date_diff = df_train['ds'].diff().dt.days.median()
+    if pd.isna(date_diff) or date_diff > 7:
+        st.warning("⚠️ Irregular data frequency detected. This may affect prediction accuracy.")
+except:
+    st.warning("⚠️ Unable to analyze date consistency.")
 
 # Enhanced Prophet model with custom parameters and error handling
 with st.spinner("🤖 Training AI model..."):
@@ -502,35 +556,86 @@ with st.spinner("🤖 Training AI model..."):
         
         # Show available data for debugging
         st.write("**Available data sample:**")
-        st.dataframe(df_train.head(10))
+        try:
+            st.dataframe(df_train.head(10))
+        except:
+            st.write("Unable to display data sample")
         
         # Try simple prediction as fallback
         st.subheader("📈 Simple Trend Analysis (Fallback)")
         if len(df_train) >= 2:
-            # Calculate simple moving average trend
-            recent_data = df_train.tail(min(30, len(df_train)))
-            trend = recent_data['y'].diff().mean()
-            current = df_train['y'].iloc[-1]
-            
-            st.write(f"**Current Price:** ${current:.2f}")
-            st.write(f"**Recent Trend:** {'+' if trend > 0 else ''}{trend:.2f} per day")
-            
-            # Simple projections
-            days_30 = current + (trend * 30)
-            days_90 = current + (trend * 90)
-            days_365 = current + (trend * 365)
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("30 Days (Simple)", f"${days_30:.2f}", f"{((days_30-current)/current*100):+.1f}%")
-            with col2:
-                st.metric("90 Days (Simple)", f"${days_90:.2f}", f"{((days_90-current)/current*100):+.1f}%")
-            with col3:
-                st.metric("1 Year (Simple)", f"${days_365:.2f}", f"{((days_365-current)/current*100):+.1f}%")
-            
-            st.info("📝 **Note:** These are simple linear projections, not AI predictions. For better accuracy, try using assets with more historical data.")
+            try:
+                # Calculate simple moving average trend
+                recent_data = df_train.tail(min(30, len(df_train)))
+                trend = recent_data['y'].diff().mean()
+                current = df_train['y'].iloc[-1]
+                
+                st.write(f"**Current Price:** ${current:.2f}")
+                st.write(f"**Recent Trend:** {'+' if trend > 0 else ''}{trend:.2f} per day")
+                
+                # Simple projections
+                days_30 = max(0, current + (trend * 30))
+                days_90 = max(0, current + (trend * 90))
+                days_365 = max(0, current + (trend * 365))
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("30 Days (Simple)", f"${days_30:.2f}", f"{((days_30-current)/current*100):+.1f}%")
+                with col2:
+                    st.metric("90 Days (Simple)", f"${days_90:.2f}", f"{((days_90-current)/current*100):+.1f}%")
+                with col3:
+                    st.metric("1 Year (Simple)", f"${days_365:.2f}", f"{((days_365-current)/current*100):+.1f}%")
+                
+                st.info("📝 **Note:** These are simple linear projections, not AI predictions. For better accuracy, try using assets with more historical data.")
+                
+                # Create simple trend chart
+                fig_simple = go.Figure()
+                
+                # Historical data
+                fig_simple.add_trace(go.Scatter(
+                    x=df_train['ds'], y=df_train['y'],
+                    mode='lines', name='Historical Price',
+                    line=dict(color='#00cc96', width=2)
+                ))
+                
+                # Simple trend line
+                future_dates = pd.date_range(
+                    start=df_train['ds'].max() + timedelta(days=1), 
+                    periods=min(365, period), 
+                    freq='D'
+                )
+                future_prices = [current + (trend * i) for i in range(1, len(future_dates)+1)]
+                future_prices = [max(0, price) for price in future_prices]  # Ensure non-negative
+                
+                fig_simple.add_trace(go.Scatter(
+                    x=future_dates, y=future_prices,
+                    mode='lines', name='Simple Trend',
+                    line=dict(color='#ff6692', width=2, dash='dash')
+                ))
+                
+                fig_simple.update_layout(
+                    title=f"📈 {selected_stock} - Simple Trend Projection",
+                    xaxis_title="Date",
+                    yaxis_title="Price ($)",
+                    template="plotly_dark",
+                    height=400
+                )
+                
+                st.plotly_chart(fig_simple, use_container_width=True)
+                
+            except Exception as trend_error:
+                st.write(f"Unable to create simple trend analysis: {str(trend_error)}")
         
-        st.stop()
+        # Don't stop here - let the user continue with the app
+        st.warning("⚠️ Continuing with limited functionality. Some features may not be available.")
+        
+        # Create minimal forecast data for the rest of the app to work
+        forecast = pd.DataFrame({
+            'ds': df_train['ds'],
+            'yhat': df_train['y'],
+            'yhat_lower': df_train['y'] * 0.9,
+            'yhat_upper': df_train['y'] * 1.1
+        })
 
 # Forecast visualization
 col1, col2 = st.columns([2, 1])
