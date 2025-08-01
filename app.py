@@ -169,24 +169,71 @@ else:
 # Main dashboard layout
 col1, col2, col3, col4 = st.columns(4)
 
-current_price = data['Close'].iloc[-1]
+# Safe price calculations with error handling
+def safe_format_price(value, default="N/A"):
+    """Safely format price values, handling NaN and None"""
+    try:
+        if pd.isna(value) or value is None:
+            return default
+        return f"${float(value):.2f}"
+    except:
+        return default
+
+def safe_format_number(value, default="N/A"):
+    """Safely format numbers, handling NaN and None"""
+    try:
+        if pd.isna(value) or value is None:
+            return default
+        return f"{float(value):,.0f}"
+    except:
+        return default
+
+def safe_format_change(current, previous):
+    """Safely calculate and format price changes"""
+    try:
+        if pd.isna(current) or pd.isna(previous) or current is None or previous is None or previous == 0:
+            return "N/A", "N/A"
+        
+        change = float(current) - float(previous)
+        change_pct = (change / float(previous)) * 100
+        return f"{change:+.2f}", f"{change_pct:+.2f}%"
+    except:
+        return "N/A", "N/A"
+
+# Calculate metrics safely
+current_price = data['Close'].iloc[-1] if not data.empty else None
 prev_price = data['Close'].iloc[-2] if len(data) > 1 else current_price
-price_change = current_price - prev_price
-price_change_pct = (price_change / prev_price) * 100
+current_volume = data['Volume'].iloc[-1] if not data.empty else None
+
+# Calculate price changes
+price_change_str, price_change_pct_str = safe_format_change(current_price, prev_price)
 
 with col1:
-    st.metric("💰 Current Price", f"${current_price:.2f}", f"{price_change:+.2f} ({price_change_pct:+.2f}%)")
+    price_display = safe_format_price(current_price)
+    if price_change_str != "N/A" and price_change_pct_str != "N/A":
+        st.metric("💰 Current Price", price_display, f"{price_change_str} ({price_change_pct_str})")
+    else:
+        st.metric("💰 Current Price", price_display)
 
 with col2:
-    st.metric("📊 Volume", f"{data['Volume'].iloc[-1]:,.0f}")
+    volume_display = safe_format_number(current_volume)
+    st.metric("📊 Volume", volume_display)
 
 with col3:
-    high_52w = data['High'].tail(252).max() if len(data) >= 252 else data['High'].max()
-    st.metric("📈 52W High", f"${high_52w:.2f}")
+    try:
+        high_52w = data['High'].tail(252).max() if len(data) >= 252 else data['High'].max()
+        high_52w_display = safe_format_price(high_52w)
+    except:
+        high_52w_display = "N/A"
+    st.metric("📈 52W High", high_52w_display)
 
 with col4:
-    low_52w = data['Low'].tail(252).min() if len(data) >= 252 else data['Low'].min()
-    st.metric("📉 52W Low", f"${low_52w:.2f}")
+    try:
+        low_52w = data['Low'].tail(252).min() if len(data) >= 252 else data['Low'].min()
+        low_52w_display = safe_format_price(low_52w)
+    except:
+        low_52w_display = "N/A"
+    st.metric("📉 52W Low", low_52w_display)
 
 # Data overview section
 st.subheader("📊 Data Overview")
@@ -195,55 +242,81 @@ tab1, tab2, tab3 = st.tabs(["📈 Price Chart", "📋 Data Table", "📊 Statist
 
 with tab1:
     # Enhanced price chart
-    fig = make_subplots(
-        rows=2, cols=1,
-        subplot_titles=('Price Movement', 'Volume'),
-        vertical_spacing=0.1,
-        row_heights=[0.7, 0.3],
-        shared_xaxes=True
-    )
-    
-    # Price traces
-    fig.add_trace(go.Scatter(
-        x=data["Date"], y=data["Close"], 
-        name="Close Price", line=dict(color="#00cc96", width=2)
-    ), row=1, col=1)
-    
-    fig.add_trace(go.Scatter(
-        x=data["Date"], y=data["Open"], 
-        name="Open Price", line=dict(color="#ff6692", width=1),
-        opacity=0.7
-    ), row=1, col=1)
-    
-    # Volume
-    if include_volume:
-        fig.add_trace(go.Bar(
-            x=data["Date"], y=data["Volume"],
-            name="Volume", marker_color="#ab63fa"
-        ), row=2, col=1)
-    
-    fig.update_layout(
-        title=f"📈 {selected_stock} - Historical Price & Volume Analysis",
-        xaxis_rangeslider_visible=True,
-        template="plotly_dark",
-        height=600
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
+    try:
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=('Price Movement', 'Volume'),
+            vertical_spacing=0.1,
+            row_heights=[0.7, 0.3],
+            shared_xaxes=True
+        )
+        
+        # Clean data for plotting
+        plot_data = data.dropna(subset=['Date', 'Close', 'Open'])
+        
+        if not plot_data.empty:
+            # Price traces
+            fig.add_trace(go.Scatter(
+                x=plot_data["Date"], y=plot_data["Close"], 
+                name="Close Price", line=dict(color="#00cc96", width=2)
+            ), row=1, col=1)
+            
+            fig.add_trace(go.Scatter(
+                x=plot_data["Date"], y=plot_data["Open"], 
+                name="Open Price", line=dict(color="#ff6692", width=1),
+                opacity=0.7
+            ), row=1, col=1)
+            
+            # Volume
+            if include_volume and 'Volume' in plot_data.columns:
+                volume_data = plot_data.dropna(subset=['Volume'])
+                if not volume_data.empty:
+                    fig.add_trace(go.Bar(
+                        x=volume_data["Date"], y=volume_data["Volume"],
+                        name="Volume", marker_color="#ab63fa"
+                    ), row=2, col=1)
+            
+            fig.update_layout(
+                title=f"📈 {selected_stock} - Historical Price & Volume Analysis",
+                xaxis_rangeslider_visible=True,
+                template="plotly_dark",
+                height=600
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("⚠️ Insufficient data for price chart")
+            
+    except Exception as e:
+        st.error("Unable to create price chart. Please try a different asset or time period.")
 
 with tab2:
     # Interactive data table
     display_rows = st.slider("Rows to display", 10, min(100, len(data)), 20)
     
-    # Calculate additional metrics
-    data_display = data.tail(display_rows).copy()
-    data_display['Daily Change %'] = ((data_display['Close'] - data_display['Open']) / data_display['Open'] * 100).round(2)
-    data_display['High-Low %'] = ((data_display['High'] - data_display['Low']) / data_display['Low'] * 100).round(2)
-    
-    st.dataframe(
-        data_display[['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Daily Change %', 'High-Low %']],
-        use_container_width=True
-    )
+    # Calculate additional metrics safely
+    try:
+        data_display = data.tail(display_rows).copy()
+        
+        # Calculate daily changes with error handling
+        data_display['Daily Change %'] = ((data_display['Close'] - data_display['Open']) / data_display['Open'] * 100)
+        data_display['High-Low %'] = ((data_display['High'] - data_display['Low']) / data_display['Low'] * 100)
+        
+        # Handle NaN values
+        data_display['Daily Change %'] = data_display['Daily Change %'].fillna(0).round(2)
+        data_display['High-Low %'] = data_display['High-Low %'].fillna(0).round(2)
+        
+        # Select and display columns
+        display_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Daily Change %', 'High-Low %']
+        available_columns = [col for col in display_columns if col in data_display.columns]
+        
+        st.dataframe(
+            data_display[available_columns],
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error("Unable to display data table. Showing raw data instead.")
+        st.dataframe(data.tail(display_rows), use_container_width=True)
 
 with tab3:
     # Statistical analysis
@@ -251,33 +324,59 @@ with tab3:
     
     with col1:
         st.subheader("📊 Price Statistics")
-        stats_df = pd.DataFrame({
-            'Metric': ['Mean', 'Median', 'Std Dev', 'Min', 'Max', 'Skewness', 'Kurtosis'],
-            'Value': [
-                f"${data['Close'].mean():.2f}",
-                f"${data['Close'].median():.2f}",
-                f"${data['Close'].std():.2f}",
-                f"${data['Close'].min():.2f}",
-                f"${data['Close'].max():.2f}",
-                f"{data['Close'].skew():.3f}",
-                f"{data['Close'].kurtosis():.3f}"
-            ]
-        })
+        try:
+            close_prices = data['Close'].dropna()
+            if len(close_prices) > 0:
+                stats_df = pd.DataFrame({
+                    'Metric': ['Mean', 'Median', 'Std Dev', 'Min', 'Max', 'Skewness', 'Kurtosis'],
+                    'Value': [
+                        f"${close_prices.mean():.2f}",
+                        f"${close_prices.median():.2f}",
+                        f"${close_prices.std():.2f}",
+                        f"${close_prices.min():.2f}",
+                        f"${close_prices.max():.2f}",
+                        f"{close_prices.skew():.3f}",
+                        f"{close_prices.kurtosis():.3f}"
+                    ]
+                })
+            else:
+                stats_df = pd.DataFrame({
+                    'Metric': ['Mean', 'Median', 'Std Dev', 'Min', 'Max', 'Skewness', 'Kurtosis'],
+                    'Value': ['N/A'] * 7
+                })
+        except Exception as e:
+            stats_df = pd.DataFrame({
+                'Metric': ['Error'],
+                'Value': ['Unable to calculate statistics']
+            })
         st.dataframe(stats_df, use_container_width=True, hide_index=True)
     
     with col2:
         st.subheader("📈 Returns Analysis")
-        returns = data['Close'].pct_change().dropna()
-        returns_stats = pd.DataFrame({
-            'Metric': ['Daily Return Mean', 'Daily Return Std', 'Sharpe Ratio (approx)', 'Max Daily Gain', 'Max Daily Loss'],
-            'Value': [
-                f"{returns.mean()*100:.3f}%",
-                f"{returns.std()*100:.3f}%",
-                f"{(returns.mean()/returns.std())*np.sqrt(252):.2f}",
-                f"{returns.max()*100:.2f}%",
-                f"{returns.min()*100:.2f}%"
-            ]
-        })
+        try:
+            returns = data['Close'].pct_change().dropna()
+            if len(returns) > 0 and not returns.empty:
+                sharpe_ratio = (returns.mean()/returns.std())*np.sqrt(252) if returns.std() != 0 else 0
+                returns_stats = pd.DataFrame({
+                    'Metric': ['Daily Return Mean', 'Daily Return Std', 'Sharpe Ratio (approx)', 'Max Daily Gain', 'Max Daily Loss'],
+                    'Value': [
+                        f"{returns.mean()*100:.3f}%",
+                        f"{returns.std()*100:.3f}%",
+                        f"{sharpe_ratio:.2f}",
+                        f"{returns.max()*100:.2f}%",
+                        f"{returns.min()*100:.2f}%"
+                    ]
+                })
+            else:
+                returns_stats = pd.DataFrame({
+                    'Metric': ['Daily Return Mean', 'Daily Return Std', 'Sharpe Ratio (approx)', 'Max Daily Gain', 'Max Daily Loss'],
+                    'Value': ['N/A'] * 5
+                })
+        except Exception as e:
+            returns_stats = pd.DataFrame({
+                'Metric': ['Error'],
+                'Value': ['Unable to calculate returns']
+            })
         st.dataframe(returns_stats, use_container_width=True, hide_index=True)
 
 # Prophet Forecasting Section
@@ -287,22 +386,36 @@ st.subheader("🔮 AI-Powered Forecasting with Prophet")
 df_train = data[["Date", "Close"]].copy()
 df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
 
+# Clean the training data
+df_train = df_train.dropna()
+
+if df_train.empty or len(df_train) < 2:
+    st.error("⚠️ Insufficient data for forecasting. Need at least 2 valid data points.")
+    st.stop()
+
 # Enhanced Prophet model with custom parameters
 with st.spinner("🤖 Training AI model..."):
-    m = Prophet(
-        changepoint_prior_scale=0.05,
-        seasonality_prior_scale=10,
-        holidays_prior_scale=10,
-        daily_seasonality=False,
-        weekly_seasonality=True,
-        yearly_seasonality=True,
-        interval_width=0.8 if show_confidence else 0.95
-    )
-    m.fit(df_train)
-
-# Make future predictions
-future = m.make_future_dataframe(periods=period)
-forecast = m.predict(future)
+    try:
+        m = Prophet(
+            changepoint_prior_scale=0.05,
+            seasonality_prior_scale=10,
+            holidays_prior_scale=10,
+            daily_seasonality=False,
+            weekly_seasonality=True,
+            yearly_seasonality=True,
+            interval_width=0.8 if show_confidence else 0.95
+        )
+        m.fit(df_train)
+        
+        # Make future predictions
+        future = m.make_future_dataframe(periods=period)
+        forecast = m.predict(future)
+        
+        st.success("✅ AI model trained successfully!")
+        
+    except Exception as e:
+        st.error("❌ Unable to train forecasting model. Please try a different asset or reduce the prediction period.")
+        st.stop()
 
 # Forecast visualization
 col1, col2 = st.columns([2, 1])
@@ -310,145 +423,195 @@ col1, col2 = st.columns([2, 1])
 with col1:
     st.subheader("📈 Forecast Visualization")
     
-    # Create enhanced forecast plot
-    fig_forecast = go.Figure()
-    
-    # Historical data
-    fig_forecast.add_trace(go.Scatter(
-        x=df_train['ds'], y=df_train['y'],
-        mode='lines', name='Historical Data',
-        line=dict(color='#00cc96', width=2)
-    ))
-    
-    # Forecast line
-    future_data = forecast[forecast['ds'] > df_train['ds'].max()]
-    fig_forecast.add_trace(go.Scatter(
-        x=future_data['ds'], y=future_data['yhat'],
-        mode='lines', name='Forecast',
-        line=dict(color='#ff6692', width=3, dash='dash')
-    ))
-    
-    # Confidence intervals
-    if show_confidence:
-        fig_forecast.add_trace(go.Scatter(
-            x=future_data['ds'], y=future_data['yhat_upper'],
-            fill=None, mode='lines',
-            line=dict(color='rgba(255, 102, 146, 0)'),
-            showlegend=False
-        ))
-        fig_forecast.add_trace(go.Scatter(
-            x=future_data['ds'], y=future_data['yhat_lower'],
-            fill='tonexty', mode='lines',
-            fillcolor='rgba(255, 102, 146, 0.2)',
-            line=dict(color='rgba(255, 102, 146, 0)'),
-            name='Confidence Interval'
-        ))
-    
-    fig_forecast.update_layout(
-        title=f"🔮 {selected_stock} Price Forecast - Next {n_years} Year(s)",
-        xaxis_title="Date",
-        yaxis_title="Price ($)",
-        template="plotly_dark",
-        height=500
-    )
-    
-    st.plotly_chart(fig_forecast, use_container_width=True)
+    try:
+        # Create enhanced forecast plot
+        fig_forecast = go.Figure()
+        
+        # Clean training data
+        df_train_clean = df_train.dropna()
+        forecast_clean = forecast.dropna(subset=['ds', 'yhat'])
+        
+        if not df_train_clean.empty and not forecast_clean.empty:
+            # Historical data
+            fig_forecast.add_trace(go.Scatter(
+                x=df_train_clean['ds'], y=df_train_clean['y'],
+                mode='lines', name='Historical Data',
+                line=dict(color='#00cc96', width=2)
+            ))
+            
+            # Forecast line
+            future_data = forecast_clean[forecast_clean['ds'] > df_train_clean['ds'].max()]
+            
+            if not future_data.empty:
+                fig_forecast.add_trace(go.Scatter(
+                    x=future_data['ds'], y=future_data['yhat'],
+                    mode='lines', name='Forecast',
+                    line=dict(color='#ff6692', width=3, dash='dash')
+                ))
+                
+                # Confidence intervals
+                if show_confidence and 'yhat_upper' in future_data.columns and 'yhat_lower' in future_data.columns:
+                    # Clean confidence interval data
+                    conf_data = future_data.dropna(subset=['yhat_upper', 'yhat_lower'])
+                    
+                    if not conf_data.empty:
+                        fig_forecast.add_trace(go.Scatter(
+                            x=conf_data['ds'], y=conf_data['yhat_upper'],
+                            fill=None, mode='lines',
+                            line=dict(color='rgba(255, 102, 146, 0)'),
+                            showlegend=False
+                        ))
+                        fig_forecast.add_trace(go.Scatter(
+                            x=conf_data['ds'], y=conf_data['yhat_lower'],
+                            fill='tonexty', mode='lines',
+                            fillcolor='rgba(255, 102, 146, 0.2)',
+                            line=dict(color='rgba(255, 102, 146, 0)'),
+                            name='Confidence Interval'
+                        ))
+            
+            fig_forecast.update_layout(
+                title=f"🔮 {selected_stock} Price Forecast - Next {n_years} Year(s)",
+                xaxis_title="Date",
+                yaxis_title="Price ($)",
+                template="plotly_dark",
+                height=500
+            )
+            
+            st.plotly_chart(fig_forecast, use_container_width=True)
+        else:
+            st.warning("⚠️ Unable to create forecast chart - insufficient data")
+            
+    except Exception as e:
+        st.error("Unable to generate forecast visualization. Please try a different asset or time period.")
 
 with col2:
     st.subheader("🎯 Key Predictions")
     
-    # Calculate key prediction metrics
-    current_price = df_train['y'].iloc[-1]
-    
-    # Future predictions at specific intervals
-    future_30d = forecast[forecast['ds'] == (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')]
-    future_90d = forecast[forecast['ds'] == (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')]
-    future_1y = forecast[forecast['ds'] == (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')]
-    
-    def get_prediction_value(pred_df):
-        return pred_df['yhat'].iloc[0] if not pred_df.empty else None
-    
-    pred_30d = get_prediction_value(future_30d)
-    pred_90d = get_prediction_value(future_90d)
-    pred_1y = get_prediction_value(future_1y)
-    
-    if pred_30d:
-        change_30d = ((pred_30d - current_price) / current_price) * 100
-        st.markdown(f"""
-        <div class="prediction-highlight">
-        <h4>📅 30 Days</h4>
-        <p><strong>${pred_30d:.2f}</strong> ({change_30d:+.1f}%)</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    if pred_90d:
-        change_90d = ((pred_90d - current_price) / current_price) * 100
-        st.markdown(f"""
-        <div class="prediction-highlight">
-        <h4>📅 90 Days</h4>
-        <p><strong>${pred_90d:.2f}</strong> ({change_90d:+.1f}%)</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    if pred_1y:
-        change_1y = ((pred_1y - current_price) / current_price) * 100
-        st.markdown(f"""
-        <div class="prediction-highlight">
-        <h4>📅 1 Year</h4>
-        <p><strong>${pred_1y:.2f}</strong> ({change_1y:+.1f}%)</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # Calculate key prediction metrics safely
+    try:
+        current_price_pred = float(df_train['y'].iloc[-1]) if not df_train.empty else None
+        
+        if current_price_pred is None or pd.isna(current_price_pred):
+            st.warning("⚠️ Unable to calculate predictions - insufficient price data")
+        else:
+            # Future predictions at specific intervals
+            future_30d = forecast[forecast['ds'] == (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')]
+            future_90d = forecast[forecast['ds'] == (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')]
+            future_1y = forecast[forecast['ds'] == (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')]
+            
+            def get_prediction_value(pred_df):
+                try:
+                    if not pred_df.empty and not pd.isna(pred_df['yhat'].iloc[0]):
+                        return float(pred_df['yhat'].iloc[0])
+                    return None
+                except:
+                    return None
+            
+            pred_30d = get_prediction_value(future_30d)
+            pred_90d = get_prediction_value(future_90d)
+            pred_1y = get_prediction_value(future_1y)
+            
+            if pred_30d and not pd.isna(pred_30d):
+                change_30d = ((pred_30d - current_price_pred) / current_price_pred) * 100
+                st.markdown(f"""
+                <div class="prediction-highlight">
+                <h4>📅 30 Days</h4>
+                <p><strong>${pred_30d:.2f}</strong> ({change_30d:+.1f}%)</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("30-day prediction not available")
+            
+            if pred_90d and not pd.isna(pred_90d):
+                change_90d = ((pred_90d - current_price_pred) / current_price_pred) * 100
+                st.markdown(f"""
+                <div class="prediction-highlight">
+                <h4>📅 90 Days</h4>
+                <p><strong>${pred_90d:.2f}</strong> ({change_90d:+.1f}%)</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("90-day prediction not available")
+            
+            if pred_1y and not pd.isna(pred_1y):
+                change_1y = ((pred_1y - current_price_pred) / current_price_pred) * 100
+                st.markdown(f"""
+                <div class="prediction-highlight">
+                <h4>📅 1 Year</h4>
+                <p><strong>${pred_1y:.2f}</strong> ({change_1y:+.1f}%)</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("1-year prediction not available")
+                
+    except Exception as e:
+        st.error("Unable to generate predictions. Please try a different asset or time period.")
 
 # Show trend components
 if show_components:
     st.subheader("📊 Trend Component Analysis")
     
-    fig_components = m.plot_components(forecast)
-    st.pyplot(fig_components)
+    try:
+        fig_components = m.plot_components(forecast)
+        st.pyplot(fig_components)
+    except Exception as e:
+        st.warning("⚠️ Unable to display trend components. This may be due to insufficient data or model complexity.")
 
 # Detailed forecast table
 st.subheader("📋 Detailed Forecast Table")
 
 # Future predictions table
-future_predictions = forecast[forecast['ds'] > df_train['ds'].max()].copy()
-future_predictions['Price Change'] = future_predictions['yhat'] - current_price
-future_predictions['Price Change %'] = (future_predictions['Price Change'] / current_price) * 100
+try:
+    future_predictions = forecast[forecast['ds'] > df_train['ds'].max()].copy()
+    current_price_table = float(df_train['y'].iloc[-1]) if not df_train.empty else 0
+    
+    if not future_predictions.empty and current_price_table > 0:
+        future_predictions['Price Change'] = future_predictions['yhat'] - current_price_table
+        future_predictions['Price Change %'] = (future_predictions['Price Change'] / current_price_table) * 100
+        
+        # Display options for the table
+        table_cols = st.columns(3)
+        with table_cols[0]:
+            table_rows = st.selectbox("Rows to show", [10, 25, 50, 100], index=1)
+        with table_cols[1]:
+            show_confidence_table = st.checkbox("Show confidence bounds in table", True)
+        with table_cols[2]:
+            date_filter = st.selectbox("Filter by", ["All", "Next 30 days", "Next 90 days", "Next 1 year"])
 
-# Display options for the table
-table_cols = st.columns(3)
-with table_cols[0]:
-    table_rows = st.selectbox("Rows to show", [10, 25, 50, 100], index=1)
-with table_cols[1]:
-    show_confidence_table = st.checkbox("Show confidence bounds in table", True)
-with table_cols[2]:
-    date_filter = st.selectbox("Filter by", ["All", "Next 30 days", "Next 90 days", "Next 1 year"])
+        # Apply filters
+        if date_filter == "Next 30 days":
+            cutoff_date = datetime.now() + timedelta(days=30)
+            future_predictions = future_predictions[future_predictions['ds'] <= cutoff_date.strftime('%Y-%m-%d')]
+        elif date_filter == "Next 90 days":
+            cutoff_date = datetime.now() + timedelta(days=90)
+            future_predictions = future_predictions[future_predictions['ds'] <= cutoff_date.strftime('%Y-%m-%d')]
+        elif date_filter == "Next 1 year":
+            cutoff_date = datetime.now() + timedelta(days=365)
+            future_predictions = future_predictions[future_predictions['ds'] <= cutoff_date.strftime('%Y-%m-%d')]
 
-# Apply filters
-if date_filter == "Next 30 days":
-    cutoff_date = datetime.now() + timedelta(days=30)
-    future_predictions = future_predictions[future_predictions['ds'] <= cutoff_date.strftime('%Y-%m-%d')]
-elif date_filter == "Next 90 days":
-    cutoff_date = datetime.now() + timedelta(days=90)
-    future_predictions = future_predictions[future_predictions['ds'] <= cutoff_date.strftime('%Y-%m-%d')]
-elif date_filter == "Next 1 year":
-    cutoff_date = datetime.now() + timedelta(days=365)
-    future_predictions = future_predictions[future_predictions['ds'] <= cutoff_date.strftime('%Y-%m-%d')]
+        # Select columns for display
+        display_columns = ['ds', 'yhat', 'Price Change', 'Price Change %']
+        if show_confidence_table:
+            display_columns.extend(['yhat_lower', 'yhat_upper'])
 
-# Select columns for display
-display_columns = ['ds', 'yhat', 'Price Change', 'Price Change %']
-if show_confidence_table:
-    display_columns.extend(['yhat_lower', 'yhat_upper'])
+        # Format the table
+        table_data = future_predictions[display_columns].head(table_rows).copy()
+        column_names = ['Date', 'Predicted Price', 'Price Change ($)', 'Price Change (%)']
+        if show_confidence_table:
+            column_names.extend(['Lower Bound', 'Upper Bound'])
+        table_data.columns = column_names
 
-# Format the table
-table_data = future_predictions[display_columns].head(table_rows).copy()
-table_data.columns = ['Date', 'Predicted Price', 'Price Change ($)', 'Price Change (%)', 'Lower Bound', 'Upper Bound'][:len(display_columns)]
+        # Round numerical columns and handle NaN values
+        for col in table_data.columns:
+            if col != 'Date':
+                table_data[col] = table_data[col].fillna(0).round(2)
 
-# Round numerical columns
-for col in table_data.columns:
-    if col != 'Date':
-        table_data[col] = table_data[col].round(2)
-
-st.dataframe(table_data, use_container_width=True, hide_index=True)
+        st.dataframe(table_data, use_container_width=True, hide_index=True)
+    else:
+        st.warning("⚠️ Unable to generate forecast table - insufficient data")
+        
+except Exception as e:
+    st.error("Unable to generate forecast table. Please try refreshing or selecting a different asset.")
 
 # Export functionality
 st.subheader("💾 Export Data")
@@ -493,4 +656,3 @@ with col3:
         file_name=f"{selected_stock}_summary.csv",
         mime="text/csv"
     )
-
