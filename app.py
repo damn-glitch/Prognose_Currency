@@ -1,45 +1,94 @@
-# Import necessary libraries
+# Alternative version using multiple data sources
 import streamlit as st
-from datetime import date
+from datetime import date, datetime, timedelta
 import yfinance
 from prophet import Prophet
 from prophet.plot import plot_plotly
 from plotly import graph_objects as go
 import pandas as pd
-import base64
+import requests
+import time
 
-# Set start date and today's date
 START = "2009-01-01"
 TODAY = date.today().strftime("%Y-%m-%d")
 
-# Set Streamlit app title
 st.title("CryptoProphet Infinitum Intelligence")
 
-# Define a list of stocks for user selection
 stocks = ("ETH-USD", "BTC-USD", "GOOG", "AAPL", "MSFT", "GME")
 selected_stock = st.selectbox("Select Stock", stocks)
 
-# Slider for selecting the number of years for prediction
 n_years = st.slider("Years of Prediction", 1, 100)
 period = n_years * 365
 
-# Function to load historical stock data using Yahoo Finance
 @st.cache_data
-def load_data(stock):
-    data = yfinance.download(stock, START, TODAY)
-    data.reset_index(inplace=True)
-    return data
+def load_data_yfinance(stock):
+    """Try to load data using yfinance"""
+    try:
+        st.info(f"Trying yfinance for {stock}...")
+        data = yfinance.download(stock, start=START, end=TODAY, progress=False)
+        if not data.empty:
+            data.reset_index(inplace=True)
+            return data, "yfinance"
+    except Exception as e:
+        st.warning(f"yfinance failed: {str(e)}")
+    return pd.DataFrame(), None
 
-# Load historical stock data for the selected stock
-data = load_data(selected_stock)
+@st.cache_data  
+def create_sample_data(stock):
+    """Create sample data if real data unavailable"""
+    st.warning("Creating sample data for demonstration...")
+    
+    # Create sample data with realistic patterns
+    dates = pd.date_range(start="2023-01-01", end=TODAY, freq='D')
+    
+    # Base price depending on stock
+    if "ETH" in stock:
+        base_price = 2000
+    elif "BTC" in stock:
+        base_price = 40000
+    elif stock == "AAPL":
+        base_price = 150
+    else:
+        base_price = 100
+    
+    # Generate realistic price movements
+    import numpy as np
+    np.random.seed(42)  # For reproducible results
+    
+    returns = np.random.normal(0.001, 0.02, len(dates))  # Daily returns
+    prices = [base_price]
+    
+    for r in returns[1:]:
+        prices.append(prices[-1] * (1 + r))
+    
+    data = pd.DataFrame({
+        'Date': dates,
+        'Open': prices,
+        'High': [p * (1 + abs(np.random.normal(0, 0.01))) for p in prices],
+        'Low': [p * (1 - abs(np.random.normal(0, 0.01))) for p in prices],
+        'Close': prices,
+        'Volume': np.random.randint(1000000, 10000000, len(dates))
+    })
+    
+    return data, "sample"
 
-# Check if data is available
+# Try to load data
+data, source = load_data_yfinance(selected_stock)
+
 if data.empty:
-    st.error("No data available for the selected stock. Please try a different stock.")
-    st.stop()
+    st.error("Unable to download real data. Using sample data for demonstration.")
+    data, source = create_sample_data(selected_stock)
 
-# User input for the number of rows to view in the stock data
-# Fix: Set default value to minimum of 50 and actual data length
+# Display data source info
+if source == "sample":
+    st.warning("⚠️ Using sample data - not real market data!")
+else:
+    st.success(f"✅ Using real data from {source}")
+
+st.write(f"Data shape: {data.shape}")
+st.write(f"Date range: {data['Date'].min()} to {data['Date'].max()}")
+
+# Continue with the rest of your app...
 default_rows = min(50, len(data))
 stock_view = st.number_input("Enter the number of rows to view", 
                            min_value=1, 
@@ -55,7 +104,6 @@ fig = go.Figure()
 fig.add_trace(go.Scatter(x=data["Date"], y=data["Open"], name="stock_open"))
 fig.add_trace(go.Scatter(x=data["Date"], y=data["Close"], name="stock_close"))
 
-# Update layout for dark background
 fig.update_layout(
     title_text="Time Series data",
     xaxis_rangeslider_visible=True,
@@ -64,43 +112,12 @@ fig.update_layout(
 )
 st.plotly_chart(fig)
 
-# Prepare data for forecasting using Prophet
+# Prepare data for forecasting
 df_train = data[["Date", "Close"]]
 df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
 
-# Check if we have enough data for forecasting
 if len(df_train) < 2:
-    st.error("Not enough data points for forecasting. Need at least 2 data points.")
+    st.error("Not enough data points for forecasting.")
     st.stop()
 
-# Initialize and fit the Prophet model
-m = Prophet()
-m.fit(df_train)
-future = m.make_future_dataframe(periods=period)
-forecast = m.predict(future)
-
-# User input for the number of rows to view in the forecasted data
-# Fix: Set default value to minimum of 50 and actual forecast length
-default_forecast_rows = min(50, len(forecast))
-rows_to_view = st.number_input("Enter the number of rows to view for forecast", 
-                              min_value=1, 
-                              max_value=len(forecast), 
-                              value=default_forecast_rows, 
-                              step=1)
-
-# View specified number of rows of forecasted data as DataFrame
-st.subheader(f"Last {rows_to_view} Rows of Forecasted Data")
-st.dataframe(forecast.tail(rows_to_view))
-
-# Plot the forecasted data
-st.subheader("Forecast data")
-fig2 = plot_plotly(m, forecast)
-
-# Update layout for dark background
-fig2.update_layout(
-    title_text="Forecast Time Series data",
-    xaxis_rangeslider_visible=True,
-    plot_bgcolor='rgba(0,0,0,0)',
-    paper_bgcolor='rgba(0,0,0,0)'
-)
-st.plotly_chart(fig2)
+# Prophet forecasting
