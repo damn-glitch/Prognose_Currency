@@ -26,16 +26,59 @@ period = n_years * 365
 # Function to load historical stock data using Yahoo Finance
 @st.cache_data
 def load_data(stock):
-    data = yfinance.download(stock, START, TODAY)
-    data.reset_index(inplace=True)
-    return data
+    try:
+        st.info(f"Downloading data for {stock} from {START} to {TODAY}...")
+        
+        # Try downloading with different parameters
+        data = yfinance.download(stock, start=START, end=TODAY, progress=False)
+        
+        if data.empty:
+            st.warning(f"No data returned for {stock}. Trying shorter date range...")
+            # Try with a shorter date range (last 2 years)
+            short_start = "2022-01-01"
+            data = yfinance.download(stock, start=short_start, end=TODAY, progress=False)
+        
+        if not data.empty:
+            data.reset_index(inplace=True)
+            st.success(f"Successfully downloaded {len(data)} rows of data for {stock}")
+        else:
+            st.error(f"Failed to download data for {stock}")
+            
+        return data
+        
+    except Exception as e:
+        st.error(f"Error downloading data: {str(e)}")
+        return pd.DataFrame()
 
 # Load historical stock data for the selected stock
 data = load_data(selected_stock)
 
+# Debug information
+st.subheader("Debug Information")
+st.write(f"Selected stock: {selected_stock}")
+st.write(f"Data shape: {data.shape if not data.empty else 'No data'}")
+if not data.empty:
+    st.write(f"Date range: {data['Date'].min()} to {data['Date'].max()}")
+    st.write(f"Columns: {list(data.columns)}")
+
 # Check if data is available
 if data.empty:
-    st.error("No data available for the selected stock. Please try a different stock.")
+    st.error("No data available for the selected stock. This could be due to:")
+    st.write("1. Network connectivity issues")
+    st.write("2. Yahoo Finance API temporarily unavailable") 
+    st.write("3. Invalid stock symbol")
+    st.write("4. Data not available for selected date range")
+    
+    # Try manual test
+    st.subheader("Manual Test")
+    if st.button("Test yfinance connection"):
+        test_stock = "AAPL"  # Known working stock
+        test_data = yfinance.download(test_stock, start="2023-01-01", end=TODAY, progress=False)
+        if not test_data.empty:
+            st.success(f"yfinance is working - downloaded {len(test_data)} rows for {test_stock}")
+        else:
+            st.error("yfinance appears to be having issues")
+    
     st.stop()
 
 # User input for the number of rows to view in the stock data
