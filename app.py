@@ -382,29 +382,80 @@ with tab3:
 # Prophet Forecasting Section
 st.subheader("🔮 AI-Powered Forecasting with Prophet")
 
-# Prepare data for Prophet
+# Prepare data for Prophet with comprehensive cleaning
 df_train = data[["Date", "Close"]].copy()
 df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
 
-# Clean the training data
-df_train = df_train.dropna()
+# Comprehensive data cleaning for Prophet
+st.info("🧹 Preprocessing data for AI model...")
 
-if df_train.empty or len(df_train) < 2:
-    st.error("⚠️ Insufficient data for forecasting. Need at least 2 valid data points.")
+# Remove any NaN or infinite values
+df_train = df_train.dropna()
+df_train = df_train[np.isfinite(df_train['y'])]
+
+# Ensure we have valid dates
+df_train['ds'] = pd.to_datetime(df_train['ds'], errors='coerce')
+df_train = df_train.dropna(subset=['ds'])
+
+# Remove any zero or negative prices (invalid for financial data)
+df_train = df_train[df_train['y'] > 0]
+
+# Sort by date to ensure chronological order
+df_train = df_train.sort_values('ds').reset_index(drop=True)
+
+# Remove duplicate dates (keep the last value for each date)
+df_train = df_train.drop_duplicates(subset=['ds'], keep='last')
+
+# Debug information
+st.write(f"📊 **Data Summary for AI Training:**")
+st.write(f"- Total data points: {len(df_train)}")
+if not df_train.empty:
+    st.write(f"- Date range: {df_train['ds'].min().strftime('%Y-%m-%d')} to {df_train['ds'].max().strftime('%Y-%m-%d')}")
+    st.write(f"- Price range: ${df_train['y'].min():.2f} to ${df_train['y'].max():.2f}")
+    st.write(f"- Data quality: {'✅ Good' if len(df_train) > 30 else '⚠️ Limited'}")
+
+# Check if we have sufficient data
+if df_train.empty:
+    st.error("❌ No valid data available for forecasting after cleaning.")
+    st.info("💡 **Possible solutions:**")
+    st.write("1. Try selecting a different asset")
+    st.write("2. Check your internet connection")
+    st.write("3. The selected asset might not have sufficient historical data")
     st.stop()
 
-# Enhanced Prophet model with custom parameters
+elif len(df_train) < 10:
+    st.error(f"❌ Insufficient data for reliable forecasting. Found only {len(df_train)} valid data points.")
+    st.info("💡 **Minimum requirement:** At least 10 data points needed for forecasting.")
+    st.write("**Available data:**")
+    st.dataframe(df_train.head(10))
+    st.stop()
+
+elif len(df_train) < 30:
+    st.warning(f"⚠️ Limited data available ({len(df_train)} points). Predictions may be less accurate.")
+
+# Check date consistency
+date_diff = df_train['ds'].diff().dt.days.median()
+if pd.isna(date_diff) or date_diff > 7:
+    st.warning("⚠️ Irregular data frequency detected. This may affect prediction accuracy.")
+
+# Enhanced Prophet model with custom parameters and error handling
 with st.spinner("🤖 Training AI model..."):
     try:
+        # Start with basic Prophet model
         m = Prophet(
-            changepoint_prior_scale=0.05,
-            seasonality_prior_scale=10,
-            holidays_prior_scale=10,
+            changepoint_prior_scale=0.01,  # More conservative
+            seasonality_prior_scale=1,     # Less aggressive seasonality
             daily_seasonality=False,
-            weekly_seasonality=True,
-            yearly_seasonality=True,
-            interval_width=0.8 if show_confidence else 0.95
+            weekly_seasonality=len(df_train) > 14,  # Only if we have enough data
+            yearly_seasonality=len(df_train) > 365,  # Only if we have enough data
+            interval_width=0.95
         )
+        
+        # Add monthly seasonality if we have enough data
+        if len(df_train) > 60:
+            m.add_seasonality(name='monthly', period=30.5, fourier_order=5)
+        
+        # Fit the model
         m.fit(df_train)
         
         # Make future predictions
@@ -413,8 +464,72 @@ with st.spinner("🤖 Training AI model..."):
         
         st.success("✅ AI model trained successfully!")
         
+        # Validate forecast results
+        if forecast.empty or forecast['yhat'].isna().all():
+            raise Exception("Forecast generated no valid predictions")
+        
+        # Check for reasonable predictions (not too extreme)
+        current_price = df_train['y'].iloc[-1]
+        max_prediction = forecast['yhat'].max()
+        min_prediction = forecast['yhat'].min()
+        
+        if max_prediction > current_price * 100 or min_prediction < current_price * 0.01:
+            st.warning("⚠️ Model generated extreme predictions. Results may be unreliable.")
+        
     except Exception as e:
-        st.error("❌ Unable to train forecasting model. Please try a different asset or reduce the prediction period.")
+        st.error("❌ Unable to train forecasting model.")
+        
+        # Provide detailed error information and solutions
+        st.info("🔧 **Troubleshooting Information:**")
+        error_msg = str(e).lower()
+        
+        if "insufficient" in error_msg or "empty" in error_msg:
+            st.write("**Issue:** Not enough valid data points")
+            st.write("**Solutions:**")
+            st.write("- Try a different asset with more trading history")
+            st.write("- Reduce the prediction period")
+        elif "date" in error_msg or "time" in error_msg:
+            st.write("**Issue:** Date formatting or consistency problems")
+            st.write("**Solutions:**")
+            st.write("- The data source might have irregular date formats")
+            st.write("- Try refreshing the app or selecting a different asset")
+        else:
+            st.write("**Issue:** Model configuration or data quality problem")
+            st.write("**Solutions:**")
+            st.write("- Try reducing the prediction period to 1-2 years")
+            st.write("- Select a more established asset (like BTC-USD or AAPL)")
+            st.write("- Check if the asset is actively traded")
+        
+        # Show available data for debugging
+        st.write("**Available data sample:**")
+        st.dataframe(df_train.head(10))
+        
+        # Try simple prediction as fallback
+        st.subheader("📈 Simple Trend Analysis (Fallback)")
+        if len(df_train) >= 2:
+            # Calculate simple moving average trend
+            recent_data = df_train.tail(min(30, len(df_train)))
+            trend = recent_data['y'].diff().mean()
+            current = df_train['y'].iloc[-1]
+            
+            st.write(f"**Current Price:** ${current:.2f}")
+            st.write(f"**Recent Trend:** {'+' if trend > 0 else ''}{trend:.2f} per day")
+            
+            # Simple projections
+            days_30 = current + (trend * 30)
+            days_90 = current + (trend * 90)
+            days_365 = current + (trend * 365)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("30 Days (Simple)", f"${days_30:.2f}", f"{((days_30-current)/current*100):+.1f}%")
+            with col2:
+                st.metric("90 Days (Simple)", f"${days_90:.2f}", f"{((days_90-current)/current*100):+.1f}%")
+            with col3:
+                st.metric("1 Year (Simple)", f"${days_365:.2f}", f"{((days_365-current)/current*100):+.1f}%")
+            
+            st.info("📝 **Note:** These are simple linear projections, not AI predictions. For better accuracy, try using assets with more historical data.")
+        
         st.stop()
 
 # Forecast visualization
